@@ -28,6 +28,7 @@ libyami_common_ldflags = \
 	$(LIBYAMI_LT_LDFLAGS) \
 	$(LIBVA_LIBS) \
 	$(LIBVA_DRM_LIBS) \
+	-lpthread \
 	$(NULL)
 
 #to compile within yocto
