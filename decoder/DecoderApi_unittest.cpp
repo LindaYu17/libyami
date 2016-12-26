@@ -264,6 +264,42 @@ TEST_P(DecodeApiTest, Format_Change)
     EXPECT_EQ(inFrames, outFrames);
 }
 
+void decodeAndOutput(SharedPtr<IVideoDecoder> decoder, DecodeSurfaceAllocator *allocator, TestDecodeFrames& frames,
+            int begin, int end, int64_t& timeBeforeFlush, int64_t& timeCurrent, bool isFlushed, int& inFrames, int& outFrames)
+{
+    VideoDecodeBuffer buffer;
+    FrameInfo info;
+    SharedPtr<VideoFrame> output;
+
+    for (int j = begin; j < end; j++) {
+        if (!frames.getFrame(buffer, info))
+            break;
+
+        buffer.timeStamp = timeCurrent;
+        timeCurrent++;
+        YamiStatus status = decoder->decode(&buffer);
+        while ((output = decoder->getOutput())) {
+            outFrames ++;
+            if (isFlushed) {
+                EXPECT_TRUE(output->timeStamp > timeBeforeFlush);
+            }
+        }
+
+        if (status == YAMI_DECODE_FORMAT_CHANGE) {
+            //check format
+            const VideoFormatInfo* format = decoder->getFormatInfo();
+            allocator->onFormatChange(format);
+
+            //send buffer again
+            EXPECT_EQ(YAMI_SUCCESS, decoder->decode(&buffer));
+        } else {
+            EXPECT_TRUE((YAMI_SUCCESS == status) || (YAMI_DECODE_INVALID_DATA == status));
+        }
+        inFrames++;
+    }
+    return;
+}
+
 TEST_P(DecodeApiTest, Flush)
 {
     NativeDisplay nativeDisplay;
@@ -282,43 +318,18 @@ TEST_P(DecodeApiTest, Flush)
     memset(&config, 0, sizeof(config));
     ASSERT_EQ(YAMI_SUCCESS, decoder->start(&config));
 
-    VideoDecodeBuffer buffer;
-    FrameInfo info;
     int64_t timeBeforeFlush = 0;
     int64_t timeCurrent = 0;
-    SharedPtr<VideoFrame> output;
     int32_t size = frames.getFrameCount();
+    int32_t inFrames = 0;
     int32_t outFrames = 0;
 
     for (int i = 0; i < size; i++) {
+        inFrames = 0;
         outFrames = 0;
         frames.seekToStart();
-        for (int j = 0; j <= i; j++) {
-            if (!frames.getFrame(buffer, info))
-                break;
-
-            buffer.timeStamp = timeCurrent;
-            timeCurrent++;
-            YamiStatus status = decoder->decode(&buffer);
-            while ((output = decoder->getOutput())) {
-                EXPECT_TRUE(output->timeStamp > timeBeforeFlush);
-                outFrames++;
-            }
-
-            if (status == YAMI_DECODE_FORMAT_CHANGE) {
-                //check format
-                const VideoFormatInfo* format = decoder->getFormatInfo();
-                allocator->onFormatChange(format);
-
-                //send buffer again
-                EXPECT_EQ(YAMI_SUCCESS, decoder->decode(&buffer));
-            }
-            else {
-                EXPECT_EQ(YAMI_SUCCESS, status);
-            }
-        }
-        timeBeforeFlush = buffer.timeStamp;
-
+        decodeAndOutput(decoder, allocator, frames, 0, i, timeBeforeFlush, timeCurrent, false, inFrames, outFrames);
+        timeBeforeFlush = timeCurrent - 1;
         // No flush at last round, it has EOS at the end
         if (i < (size - 1))
             decoder->flush();
@@ -328,7 +339,53 @@ TEST_P(DecodeApiTest, Flush)
     while (decoder->getOutput()) {
         outFrames++;
     }
-    EXPECT_EQ(outFrames, size);
+    EXPECT_EQ(outFrames, inFrames);
+}
+
+
+TEST_P(DecodeApiTest, Flush_NonIDR)
+{
+    NativeDisplay nativeDisplay;
+    memset(&nativeDisplay, 0, sizeof(nativeDisplay));
+    DisplayPtr display = VaapiDisplay::create(nativeDisplay);
+    DecodeSurfaceAllocator* allocator = new DecodeSurfaceAllocator(display);
+
+    SharedPtr<IVideoDecoder> decoder;
+    TestDecodeFrames frames = *GetParam();
+    decoder.reset(createVideoDecoder(frames.getMime()), releaseVideoDecoder);
+    ASSERT_TRUE(bool(decoder));
+
+    decoder->setAllocator(allocator);
+
+    VideoConfigBuffer config;
+    memset(&config, 0, sizeof(config));
+    ASSERT_EQ(YAMI_SUCCESS, decoder->start(&config));
+
+    int64_t timeBeforeFlush = 0;
+    int64_t timeCurrent = 0;
+    int32_t size = frames.getFrameCount();
+    int inFrames = 0;
+    int outFrames = 0;
+
+    for (int i = 1; i < size; i++) {
+        frames.seekToStart();
+        // decode 0 -> i frames, and get possible output
+        decodeAndOutput(decoder, allocator, frames, 0, i, timeBeforeFlush, timeCurrent, false, inFrames, outFrames);
+        timeBeforeFlush = timeCurrent - 1;
+        // flush
+        EXPECT_TRUE(inFrames > outFrames);
+        decoder->flush();
+        inFrames = 0;
+        outFrames = 0;
+        // decode i -> size frames, and get possible output
+        decodeAndOutput(decoder, allocator, frames, i, size, timeBeforeFlush, timeCurrent, true, inFrames, outFrames);
+    }
+    //drain the decoder
+    EXPECT_EQ(YAMI_SUCCESS, decoder->decode(NULL));
+    while (decoder->getOutput()) {
+        outFrames ++;
+    }
+    EXPECT_TRUE(inFrames > outFrames);
 }
 
 /** Teach Google Test how to print a TestDecodeFrames::Shared object */
