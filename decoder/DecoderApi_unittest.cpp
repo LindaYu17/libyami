@@ -85,6 +85,17 @@ static FrameData g_vp8data[] = {
     g_EOF,
 };
 
+
+static FrameData g_mpeg2data[] = {
+    g_mpeg2_8x8I1,
+    g_mpeg2_8x8P,
+    g_mpeg2_8x8I2,
+    g_mpeg2_8x8I1,
+    g_mpeg2_8x8P,
+    g_mpeg2_8x8I2,
+    g_EOF,
+};
+
 class TestDecodeFrames {
 public:
     typedef SharedPtr<TestDecodeFrames> Shared;
@@ -398,6 +409,7 @@ INSTANTIATE_TEST_CASE_P(
     VaapiDecoder, DecodeApiTest,
     ::testing::Values(
         TestDecodeFrames::create(g_h264data, YAMI_MIME_H264),
+	TestDecodeFrames::create(g_mpeg2data, YAMI_MIME_MPEG2),
         TestDecodeFrames::create(g_h265data, YAMI_MIME_H265),
         TestDecodeFrames::create(g_vp8data, YAMI_MIME_VP8)));
 }
