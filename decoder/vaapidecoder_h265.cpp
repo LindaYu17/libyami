@@ -1077,7 +1077,7 @@ YamiStatus VaapiDecoderH265::decodeSlice(NalUnit* nalu)
             return status;
         if (m_noRaslOutputFlag && isRasl(nalu))
             return YAMI_SUCCESS;
-        if (!m_current || !m_dpb.init(m_current, slice, nalu, m_newStream))
+        if (!m_current || (!isIdr(nalu) && m_newStream) || !m_dpb.init(m_current, slice, nalu, m_newStream))
             return YAMI_DECODE_INVALID_DATA;
         if (!fillPicture(m_current, slice) || !fillIqMatrix(m_current, slice))
             return YAMI_FAIL;
